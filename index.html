@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Animal CNN Classifier</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <nav>
+    <a href="index.html">Classifier</a>
+    <a href="explanation.html">CNN Explanation</a>
+  </nav>
+
+  <main>
+    <h1>Animal CNN Classifier</h1>
+    <p>Upload an image and the model will classify it as cat, dog, or horse.</p>
+
+    <input type="file" id="imageInput" accept="image/*" />
+
+    <br><br>
+
+    <img id="preview" alt="Image preview" style="max-width: 250px; display: none;" />
+
+    <br><br>
+
+    <button id="predictBtn">Predict</button>
+
+    <p id="modelStatus">Loading model...</p>
+    <h2 id="result">Prediction will appear here.</h2>
+
+    <canvas id="canvas" width="32" height="32" style="display: none;"></canvas>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
