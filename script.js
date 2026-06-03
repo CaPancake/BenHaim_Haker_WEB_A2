@@ -1,5 +1,6 @@
 const classNames = ["cat", "dog", "horse"];
-const MODEL_KEY = "animal_cnn_onnx_v4";
+const MODEL_URL = "animal_cnn.onnx";
+const MODEL_KEY = "animal_cnn_onnx_debug_v1";
 
 // Helps ONNX Runtime Web find its WebAssembly backend files on GitHub Pages
 ort.env.wasm.wasmPaths =
@@ -29,49 +30,122 @@ function base64ToUint8Array(base64) {
   return bytes;
 }
 
+function inspectModelBytes(buffer) {
+  const bytes = new Uint8Array(buffer);
+  const firstBytes = bytes.slice(0, 200);
+  const firstText = new TextDecoder("utf-8", { fatal: false }).decode(firstBytes);
+
+  console.log("===== MODEL FILE DEBUG =====");
+  console.log("Fetched size:", buffer.byteLength);
+  console.log("First bytes as text:", firstText);
+  console.log("First 20 raw bytes:", Array.from(bytes.slice(0, 20)));
+  console.log("============================");
+
+  if (firstText.startsWith("version https://git-lfs.github.com/spec")) {
+    throw new Error(
+      "GitHub Pages is serving a Git LFS pointer instead of the real ONNX model."
+    );
+  }
+
+  if (
+    firstText.trim().startsWith("<!DOCTYPE html") ||
+    firstText.trim().startsWith("<html")
+  ) {
+    throw new Error(
+      "GitHub Pages is serving HTML instead of animal_cnn.onnx. Check the model path."
+    );
+  }
+
+  if (buffer.byteLength < 10000) {
+    console.warn(
+      "Warning: ONNX file looks very small. It may be incomplete or not the real model."
+    );
+  }
+}
+
+async function fetchModelBuffer() {
+  const response = await fetch(MODEL_URL);
+
+  console.log("Model fetch status:", response.status);
+  console.log("Model content-type:", response.headers.get("content-type"));
+
+  if (!response.ok) {
+    throw new Error(`Could not fetch model file. Status: ${response.status}`);
+  }
+
+  const buffer = await response.arrayBuffer();
+  inspectModelBytes(buffer);
+
+  return buffer;
+}
+
 async function loadModel() {
   const status = document.getElementById("modelStatus");
 
+  status.textContent = "Checking model file...";
+
   let modelBase64 = localStorage.getItem(MODEL_KEY);
+  let modelBytes = null;
 
   if (!modelBase64) {
     status.textContent =
       "Model not found in localStorage. Loading from GitHub Pages...";
 
-    const response = await fetch("animal_cnn.onnx");
-
-    if (!response.ok) {
-      throw new Error(`Could not fetch model file. Status: ${response.status}`);
-    }
-
-    const buffer = await response.arrayBuffer();
-
-    console.log("Fetched ONNX size:", buffer.byteLength);
+    const buffer = await fetchModelBuffer();
 
     modelBase64 = await arrayBufferToBase64(buffer);
     localStorage.setItem(MODEL_KEY, modelBase64);
 
+    modelBytes = new Uint8Array(buffer);
+
     status.textContent = "Model saved to localStorage.";
   } else {
     status.textContent = "Model loaded from localStorage.";
+
+    modelBytes = base64ToUint8Array(modelBase64);
+
+    console.log("===== LOCALSTORAGE MODEL DEBUG =====");
+    console.log("Model bytes from localStorage:", modelBytes.length);
+
+    const firstText = new TextDecoder("utf-8", { fatal: false }).decode(
+      modelBytes.slice(0, 200)
+    );
+
+    console.log("First localStorage bytes as text:", firstText);
+    console.log("====================================");
+
+    if (firstText.startsWith("version https://git-lfs.github.com/spec")) {
+      localStorage.removeItem(MODEL_KEY);
+      throw new Error(
+        "localStorage contains a Git LFS pointer instead of the real model. Cleared cached model. Refresh the page."
+      );
+    }
+
+    if (
+      firstText.trim().startsWith("<!DOCTYPE html") ||
+      firstText.trim().startsWith("<html")
+    ) {
+      localStorage.removeItem(MODEL_KEY);
+      throw new Error(
+        "localStorage contains HTML instead of the model. Cleared cached model. Refresh the page."
+      );
+    }
   }
 
-  const modelBytes = base64ToUint8Array(modelBase64);
-
-  console.log("Model bytes from localStorage:", modelBytes.length);
-
   try {
+    console.log("Creating ONNX Runtime session...");
+
     session = await ort.InferenceSession.create(modelBytes);
 
     console.log("Model loaded successfully!");
     console.log("Input names:", session.inputNames);
     console.log("Output names:", session.outputNames);
+
+    status.textContent += " Ready!";
   } catch (error) {
     console.error("ONNX session creation failed:", error);
     throw error;
   }
-
-  status.textContent += " Ready!";
 }
 
 function previewImage(file) {
@@ -101,8 +175,14 @@ function preprocessImage(file) {
         // Center crop, then resize to CIFAR-10 size: 32x32
         ctx.drawImage(
           img,
-          sx, sy, size, size,
-          0, 0, 32, 32
+          sx,
+          sy,
+          size,
+          size,
+          0,
+          0,
+          32,
+          32
         );
 
         const imageData = ctx.getImageData(0, 0, 32, 32).data;
