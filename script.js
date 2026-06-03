@@ -1,4 +1,9 @@
 const classNames = ["cat", "dog", "horse"];
+const MODEL_KEY = "animal_cnn_onnx_v4";
+
+// Helps ONNX Runtime Web find its WebAssembly backend files on GitHub Pages
+ort.env.wasm.wasmPaths =
+  "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/";
 
 let session = null;
 
@@ -27,21 +32,24 @@ function base64ToUint8Array(base64) {
 async function loadModel() {
   const status = document.getElementById("modelStatus");
 
-  let modelBase64 = localStorage.getItem("animal_cnn_onnx");
+  let modelBase64 = localStorage.getItem(MODEL_KEY);
 
   if (!modelBase64) {
-    status.textContent = "Model not found in localStorage.";
+    status.textContent =
+      "Model not found in localStorage. Loading from GitHub Pages...";
 
     const response = await fetch("animal_cnn.onnx");
 
     if (!response.ok) {
-      throw new Error("Could not fetch model file.");
+      throw new Error(`Could not fetch model file. Status: ${response.status}`);
     }
 
     const buffer = await response.arrayBuffer();
 
+    console.log("Fetched ONNX size:", buffer.byteLength);
+
     modelBase64 = await arrayBufferToBase64(buffer);
-    localStorage.setItem("animal_cnn_onnx", modelBase64);
+    localStorage.setItem(MODEL_KEY, modelBase64);
 
     status.textContent = "Model saved to localStorage.";
   } else {
@@ -50,7 +58,18 @@ async function loadModel() {
 
   const modelBytes = base64ToUint8Array(modelBase64);
 
-  session = await ort.InferenceSession.create(modelBytes);
+  console.log("Model bytes from localStorage:", modelBytes.length);
+
+  try {
+    session = await ort.InferenceSession.create(modelBytes);
+
+    console.log("Model loaded successfully!");
+    console.log("Input names:", session.inputNames);
+    console.log("Output names:", session.outputNames);
+  } catch (error) {
+    console.error("ONNX session creation failed:", error);
+    throw error;
+  }
 
   status.textContent += " Ready!";
 }
@@ -63,7 +82,7 @@ function previewImage(file) {
 }
 
 function preprocessImage(file) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const img = new Image();
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
@@ -72,40 +91,49 @@ function preprocessImage(file) {
     const std = [0.2470, 0.2435, 0.2616];
 
     img.onload = () => {
-      // Center crop before resizing to 32x32
-      // since the model was built on CIFAR10 with 32x32 images piped
-      const size = Math.min(img.width, img.height);
-      const sx = (img.width - size) / 2;
-      const sy = (img.height - size) / 2;
+      try {
+        const size = Math.min(img.width, img.height);
+        const sx = (img.width - size) / 2;
+        const sy = (img.height - size) / 2;
 
-      ctx.drawImage(
-        img,
-        sx, sy, size, size,  // crop area from original image
-        0, 0, 32, 32         // draw into 32x32 canvas
-      );
+        ctx.clearRect(0, 0, 32, 32);
 
-      const imageData = ctx.getImageData(0, 0, 32, 32).data;
+        // Center crop, then resize to CIFAR-10 size: 32x32
+        ctx.drawImage(
+          img,
+          sx, sy, size, size,
+          0, 0, 32, 32
+        );
 
-      // PyTorch expects shape: [1, 3, 32, 32]
-      const input = new Float32Array(1 * 3 * 32 * 32);
+        const imageData = ctx.getImageData(0, 0, 32, 32).data;
 
-      for (let i = 0; i < 32 * 32; i++) {
-        let r = imageData[i * 4] / 255.0;
-        let g = imageData[i * 4 + 1] / 255.0;
-        let b = imageData[i * 4 + 2] / 255.0;
+        // PyTorch / ONNX expects shape: [1, 3, 32, 32]
+        const input = new Float32Array(1 * 3 * 32 * 32);
 
-        // Same normalization as PyTorch transforms.Normalize(...)
-        r = (r - mean[0]) / std[0];
-        g = (g - mean[1]) / std[1];
-        b = (b - mean[2]) / std[2];
+        for (let i = 0; i < 32 * 32; i++) {
+          let r = imageData[i * 4] / 255.0;
+          let g = imageData[i * 4 + 1] / 255.0;
+          let b = imageData[i * 4 + 2] / 255.0;
 
-        // Channel-first format: [R channel][G channel][B channel]
-        input[i] = r;
-        input[32 * 32 + i] = g;
-        input[2 * 32 * 32 + i] = b;
+          // Same normalization as PyTorch transforms.Normalize(...)
+          r = (r - mean[0]) / std[0];
+          g = (g - mean[1]) / std[1];
+          b = (b - mean[2]) / std[2];
+
+          // Channel-first format: [R channel][G channel][B channel]
+          input[i] = r;
+          input[32 * 32 + i] = g;
+          input[2 * 32 * 32 + i] = b;
+        }
+
+        resolve(input);
+      } catch (error) {
+        reject(error);
       }
+    };
 
-      resolve(input);
+    img.onerror = () => {
+      reject(new Error("Could not load uploaded image."));
     };
 
     img.src = URL.createObjectURL(file);
@@ -114,10 +142,10 @@ function preprocessImage(file) {
 
 function softmax(values) {
   const maxVal = Math.max(...values);
-  const exps = values.map(v => Math.exp(v - maxVal));
+  const exps = values.map((v) => Math.exp(v - maxVal));
   const sum = exps.reduce((a, b) => a + b, 0);
 
-  return exps.map(v => v / sum);
+  return exps.map((v) => v / sum);
 }
 
 document.getElementById("imageInput").addEventListener("change", (event) => {
@@ -132,52 +160,62 @@ document.getElementById("predictBtn").addEventListener("click", async () => {
   const fileInput = document.getElementById("imageInput");
   const result = document.getElementById("result");
 
-  if (!session) {
-    result.textContent = "Model is still loading. Please try again.";
-    return;
-  }
-
-  if (!fileInput.files[0]) {
-    result.textContent = "Please upload an image first.";
-    return;
-  }
-
-  const inputData = await preprocessImage(fileInput.files[0]);
-
-  const inputTensor = new ort.Tensor(
-    "float32",
-    inputData,
-    [1, 3, 32, 32]
-  );
-
-  const feeds = {
-    input: inputTensor
-  };
-
-  const outputs = await session.run(feeds);
-  const outputData = Array.from(outputs.output.data);
-
-  const probabilities = softmax(outputData);
-
-  let bestIndex = 0;
-
-  for (let i = 1; i < probabilities.length; i++) {
-    if (probabilities[i] > probabilities[bestIndex]) {
-      bestIndex = i;
+  try {
+    if (!session) {
+      result.textContent = "Model is still loading. Please try again.";
+      return;
     }
+
+    if (!fileInput.files[0]) {
+      result.textContent = "Please upload an image first.";
+      return;
+    }
+
+    const inputData = await preprocessImage(fileInput.files[0]);
+
+    const inputTensor = new ort.Tensor(
+      "float32",
+      inputData,
+      [1, 3, 32, 32]
+    );
+
+    // Use the model's actual input/output names instead of assuming "input"/"output"
+    const inputName = session.inputNames[0];
+    const outputName = session.outputNames[0];
+
+    const feeds = {};
+    feeds[inputName] = inputTensor;
+
+    const outputs = await session.run(feeds);
+    const outputData = Array.from(outputs[outputName].data);
+
+    const probabilities = softmax(outputData);
+
+    let bestIndex = 0;
+
+    for (let i = 1; i < probabilities.length; i++) {
+      if (probabilities[i] > probabilities[bestIndex]) {
+        bestIndex = i;
+      }
+    }
+
+    const confidence = (probabilities[bestIndex] * 100).toFixed(2);
+
+    result.textContent =
+      `Prediction: ${classNames[bestIndex]} (${confidence}%)`;
+  } catch (error) {
+    console.error("PREDICTION ERROR:", error);
+    result.textContent = "Prediction failed: " + error.message;
   }
-
-  const confidence = (probabilities[bestIndex] * 100).toFixed(2);
-
-  result.textContent = `Prediction: ${classNames[bestIndex]} (${confidence}%)`;
 });
 
 window.addEventListener("load", async () => {
   try {
     await loadModel();
   } catch (error) {
-    console.error(error);
+    console.error("FULL MODEL LOAD ERROR:", error);
+
     document.getElementById("modelStatus").textContent =
-      "Failed to load model.";
+      "Failed to load model: " + error.message;
   }
 });
