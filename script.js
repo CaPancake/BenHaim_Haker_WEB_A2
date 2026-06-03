@@ -30,22 +30,36 @@ function base64ToUint8Array(base64) {
 async function loadModel() {
   const status = document.getElementById("modelStatus");
   let modelBase64 = localStorage.getItem(MODEL_KEY);
+  let bytes;
 
-  if (!modelBase64) {
-    status.textContent = "Model not in localStorage, fetching...";
+  async function fetchAndCacheModel() {
+    status.textContent = "Fetching model...";
     const resp = await fetch(MODEL_URL);
-    if (!resp.ok) throw new Error('Failed to fetch model');
+    if (!resp.ok) throw new Error(`Failed to fetch model: ${resp.status} ${resp.statusText}`);
     const buffer = await resp.arrayBuffer();
     modelBase64 = await arrayBufferToBase64(buffer);
     localStorage.setItem(MODEL_KEY, modelBase64);
-    status.textContent = "Model saved to localStorage.";
-  } else {
-    status.textContent = "Model loaded from localStorage.";
+    status.textContent = "Model downloaded and cached.";
+    return base64ToUint8Array(modelBase64);
   }
 
-  const bytes = base64ToUint8Array(modelBase64);
-  session = await ort.InferenceSession.create(bytes);
-  document.getElementById("modelStatus").textContent += " Ready!";
+  if (modelBase64) {
+    status.textContent = "Loading model from cache...";
+    bytes = base64ToUint8Array(modelBase64);
+  } else {
+    bytes = await fetchAndCacheModel();
+  }
+
+  try {
+    session = await ort.InferenceSession.create(bytes);
+    document.getElementById("modelStatus").textContent += " Ready!";
+  } catch (err) {
+    console.warn('Cached model failed to load, retrying fresh download.', err);
+    localStorage.removeItem(MODEL_KEY);
+    bytes = await fetchAndCacheModel();
+    session = await ort.InferenceSession.create(bytes);
+    document.getElementById("modelStatus").textContent += " Ready!";
+  }
 }
 
 function previewImage(file) {
