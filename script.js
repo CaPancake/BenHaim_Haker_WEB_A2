@@ -372,9 +372,11 @@ async function loadTrainingDataJS(files) {
 
 // Load real images from ./images folder
 async function loadCifar10Sample() {
+  console.log('loadCifar10Sample clicked');
   const status = document.getElementById('trainStatus');
   const fileInput = document.getElementById('trainDataInput');
   const progressLog = document.getElementById('trainProgressLog');
+  status.textContent = 'Loading CIFAR10 images...';
   progressLog.style.display = 'block';
   progressLog.innerHTML = 'Loading real images from ./images folder...<br>';
 
@@ -400,21 +402,21 @@ async function loadCifar10Sample() {
         const file = new File([blob], fileName, { type: blob.type });
         dataTransfer.items.add(file);
         loaded++;
-        progressLog.innerHTML += `✓ Loaded ${fileName}<br>`;
+        progressLog.innerHTML += `Loaded ${fileName}<br>`;
       } catch (e) {
         failed++;
       }
     }
 
     if (loaded === 0) {
-      progressLog.innerHTML += `<strong>⚠ No images found in ./images folder</strong><br>`;
+      progressLog.innerHTML += `<strong>No images found in ./images folder</strong><br>`;
       progressLog.innerHTML += `Please create an "images" folder and add images named like: cat_1.jpg, dog_1.jpg, horse_1.jpg<br>`;
       status.textContent = 'No images found. Create ./images folder with cat_*.jpg, dog_*.jpg, horse_*.jpg files.';
       return;
     }
 
     fileInput.files = dataTransfer.files;
-    progressLog.innerHTML += `<strong>✓ Loaded ${loaded} images. Ready to train!</strong><br>`;
+    progressLog.innerHTML += `<strong> Loaded ${loaded} images. Ready to train!</strong><br>`;
     status.textContent = `Loaded ${loaded} real images. Click Train to begin.`;
   } catch (e) {
     console.error(e);
