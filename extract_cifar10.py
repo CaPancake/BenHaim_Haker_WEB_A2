@@ -78,7 +78,7 @@ class_map = {
 # Create images directory if it doesn't exist
 os.makedirs('images', exist_ok=True)
 
-# Extract and save 50 images from each class
+# Extract and save 20 images from each class
 for class_idx, class_name in class_map.items():
     print(f"\nProcessing class: {class_name} (index {class_idx})")
     
@@ -86,8 +86,8 @@ for class_idx, class_name in class_map.items():
     class_indices = np.where(all_labels == class_idx)[0]
     print(f"Found {len(class_indices)} {class_name} images")
     
-    # Sample 50 random images
-    sample_indices = np.random.choice(class_indices, size=min(50, len(class_indices)), replace=False)
+    # Sample 20 random images
+    sample_indices = np.random.choice(class_indices, size=min(20, len(class_indices)), replace=False)
     
     # Save each image
     for i, idx in enumerate(sample_indices, 1):
@@ -102,5 +102,4 @@ for class_idx, class_name in class_map.items():
     
     print(f"Saved {len(sample_indices)} {class_name} images to ./images/")
 
-print("\n✓ Done! Images are ready in ./images/ folder")
-print("You can now click 'Load CIFAR10 Sample' in the web app to load them for training.")
+print("\nImages are ready in ./images/ folder")

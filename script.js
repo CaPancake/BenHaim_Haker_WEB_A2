@@ -386,7 +386,7 @@ async function loadCifar10Sample() {
     // List of expected image filenames (cat, dog, horse)
     // The server will return 404 for missing files, which we skip
     const imageList = [];
-    for (let i = 1; i <= 50; i++) {
+    for (let i = 1; i <= 20; i++) {
       imageList.push(`cat_${i}.jpg`, `cat_${i}.png`, `dog_${i}.jpg`, `dog_${i}.png`, `horse_${i}.jpg`, `horse_${i}.png`);
     }
 
